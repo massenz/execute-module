@@ -1,0 +1,14 @@
+# Git ignore file for Execute Module
+# Standard C++ project ignores
+
+*.so
+*.o
+*.a
+*.tar
+gen/
+build/
+Makefile
+
+# CLion
+.idea/
+

@@ -1,0 +1,9 @@
+ // This file is (c) 2015 AlertAvert.com.  All rights reserved.
+// Created by M. Massenzio, 2015-12-15
+
+// This file contains configuration settings from CMakeLists
+
+#define VERSION_MAJOR @VERSION_MAJOR@
+#define VERSION_MINOR @VERSION_MINOR@
+#define BUILD_ID "@BUILD_ID@"
+#define MODULE_NAME @MODULE_NAME@

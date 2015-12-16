@@ -1,0 +1,14 @@
+{
+  "libraries":
+  [
+    {
+      "file": "@PROJECT_BINARY_DIR@/Debug/@LIB_NAME@.@LIB_EXT@",
+      "modules":
+      [
+        {
+          "name": "@MODULE_NAME@"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+/*
+ * This file is (c) 2015 AlertAvert.com.  All rights reserved.
+ */
+
+
+package execute;
+
+
+// This class encapsulates the invocation of a command, including its
+// arguments and whether it should be invoked inside a shell.
+message RemoteCommandInfo {
+    required string command = 1;
+    required bool shell = 2;
+    repeated string arguments = 3;
+}
+
+
+// This class wraps the results of the invocation of a command
+// via the `CommandExecute` class (a thin wrapper around `process::Subprocess`).
+message RemoteCommandResult {
+    required int32 exitCode = 1 [default = 0];
+    optional string stdout = 2;
+    optional string stderr = 3;
+    optional bool signaled = 4 [default = false];
+}
