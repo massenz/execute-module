@@ -1,6 +1,4 @@
-/*
- * This file is (c) 2015 AlertAvert.com.  All rights reserved.
- */
+// This file is (c) 2015 AlertAvert.com.  All rights reserved.
 
 #include <iostream>
 
@@ -12,15 +10,11 @@
 #include <stout/json.hpp>
 #include <stout/os.hpp>
 #include <stout/protobuf.hpp>
-#include <stout/try.hpp>
 
 #include <process/help.hpp>
-#include <process/process.hpp>
-#include <process/subprocess.hpp>
 
 #include "cmdexecute.hpp"
 #include "config.h"
-#include "execute.pb.h"
 
 
 using namespace std;
@@ -128,6 +122,7 @@ Future<http::Response> RemoteExecutionProcess::activate(
         // TODO(marco): update status of pending job.
         return Nothing();
       }).after(Seconds(30), [commandInfo, cmd](const Future<Nothing> &future) {
+        // TODO(marco): timeout should be configurable and passed in the POST
         LOG(ERROR) << "Command " << commandInfo.command()
                    << " timed out, giving up";
 

@@ -1,6 +1,5 @@
-/*
- * This file is (c) 2015 AlertAvert.com.  All rights reserved.
- */
+// This file is (c) 2015 AlertAvert.com.  All rights reserved.
+
 
 
 #include "cmdexecute.hpp"
@@ -137,10 +136,9 @@ Future<RemoteCommandResult> CommandExecute::execute()
   });
 
   result.onFailed([=](const string& message) {
-    LOG(ERROR) << "Command: '" << command << "' failed;"
-               << "trying to cleanup process '" << pid()
-               << "'";
-    cleanup();
+    LOG(ERROR) << "Command: '" << command << "' failed: " << message << "\n"
+               << "Trying to cleanup process '" << pid() << "'";
+      cleanup();
   }).onDiscard([this]() {
     cleanup();
   });

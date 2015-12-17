@@ -1,6 +1,4 @@
-/*
- * This file is (c) 2015 AlertAvert.com.  All rights reserved.
- */
+// This file is (c) 2015 AlertAvert.com.  All rights reserved.
 
 #pragma once
 
