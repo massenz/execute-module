@@ -34,9 +34,11 @@ License & Allowed Use
 
 The code in this repository is **not released under an Open Source license**.
 
+  This code is (c) 2015 AlertAvert.com.  All rights reserved.
+
 This *may* change in due course, but currently the only allowed use is for
 training and learning purposes: the code is meant to be used by developers of
- Mesos Modules to learn how to create their own module.
+Mesos Modules to learn how to create their own module.
 
 We explicitly disallow usage of this code, or any derivation thereof, in any
 commercial software deployed in Production for use by external users
@@ -92,10 +94,7 @@ If it's active, you can execute ``command`` remotely on the Agent::
 
 ``arguments``
   An array of strings that will be passed verbatim (i.e., without any
-  escaping or variable substitution) to ``command``.[1]_
-
-.. _[1]: In other words, using ``{"command": "echo", "arguments": ["$PATH"]]``
-         will result in ``{"exitCode": 0, "stdout": "$PATH\n"}``.
+  escaping or variable substitution) to ``command``. [1]_
 
 ``timeout``
   In seconds, to wait for the command to complete: if ``timeout`` is
@@ -114,7 +113,7 @@ outcome of the command (if any)::
       "pid": 6880
   }
 
-To retrieve the outcome of the command::
+To retrieve the outcome of the command [2]_ ::
 
   POST /remote/task
 
@@ -137,10 +136,7 @@ Will return a ``RemoteCommandResult`` response encoded in JSON::
 If the command errors out it will result in an ``exitCode`` different from
 ``EXIT_SUCCESS`` (0) and if it times out, it will be in the ``signaled``
 state with the ``exitCode`` the value of the signal (most likely ``SIG_KILL``
-or 9, as it was killed by the ``cleanup()`` method).
-
-**Note** that even in the case the command itself failed, the response code
-is stiil a ``200 OK``::
+or 9, as it was killed by the ``cleanup()`` method) [3]_ ::
 
     POST /remote/task
 
@@ -159,13 +155,6 @@ may return::
       "stdout": ""
     }
 
-
-**NOTE** *RESTful APIs*
-  It is currently not possible to create a RESTful API using ``libprocess``
-  ``route()`` method, as it's not possible to create routes with wildcard
-  URLs (such as ``/remote/task/.*``) as in other HTTP frameworks.
-  (see `process.cpp`_ for more details, and in particular the `handlers`_
-  ``struct``).
 
 Finally, to get the list of currently running and executed processes::
 
@@ -255,10 +244,10 @@ See the `Mesos anonymous module`_ documentation for more details; however, in
 order to run a Mesos Agent with this module loaded, is a simple matter of
 adding the ``--modules`` flag, pointing it to the generated JSON
 ``modules.json`` file (the `CMake`_ step will generate it in the ``gen/``
-folder)::
+folder) [4]_ ::
 
   $ ${MESOS_ROOT}/build/bin/mesos-slave.sh --work_dir=/tmp/agent \
-      --modules=/path/to/execute-module/gen/modules.json
+      --modules=/path/to/execute-module/gen/modules.json \
       --master=zk://zk1.cluster.prod.com:2181
 
 See ``Configuration``  on the `Apache Mesos`_ documentation pages for more
@@ -276,6 +265,26 @@ Run ``ctest`` from the ``build`` directory, or launch the `execmod_test`
 binary::
 
     cd build && ./execmod_test
+
+--------
+
+*Notes*
+
+.. [1] In other words, using ``{"command": "echo", "arguments": ["$PATH"]}``
+       will result in ``{"exitCode": 0, "stdout": "$PATH\n"}``.
+
+.. [2] It is currently not possible to create a *RESTful API* using ``libprocess``
+       ``Process::route()`` method, as it's not possible to create routes with wildcard
+       URLs (such as ``/remote/task/.*``) as in other HTTP frameworks.
+       (see `process.cpp`_ for more details, and in particular the `handlers`_
+       ``struct``).
+
+.. [3] Note that even in the case the command itself failed, the response code
+       is stiil a ``200 OK``::
+
+.. [4] Make sure that the ``"file"`` field in the JSON points to the correct location
+       (**on the Agent node**) where the ``libexecmod.so`` file is located; watch out
+       for erros in the Agent's log.
 
 
 .. _Mesos anonymous module: http://mesos.apache.org/documentation/latest/modules/
