@@ -33,16 +33,16 @@ License & Allowed Use
 ---------------------
 
 The code in this repository is **not released under an Open Source license**.
- 
-This *may* change in due course, but currently the only allowed use is for 
+
+This *may* change in due course, but currently the only allowed use is for
 training and learning purposes: the code is meant to be used by developers of
  Mesos Modules to learn how to create their own module.
- 
-We explicitly disallow usage of this code, or any derivation thereof, in any 
-commercial software deployed in Production for use by external users 
+
+We explicitly disallow usage of this code, or any derivation thereof, in any
+commercial software deployed in Production for use by external users
 (regardless of whether the intended use).
 
-If you wish to use this code in Production and/or modify it, please contact 
+If you wish to use this code in Production and/or modify it, please contact
 the author directly at the following address::
 
   marco (at) alertavert (dot) com
@@ -54,21 +54,131 @@ Endpoints
 API
 ^^^
 
-::
+You can retrieve the status of this module::
+
+  GET /remote/status
+
+Returns a `200 OK` response if this module is active::
+
+  200 OK
+
+  {
+      "result": "OK",
+      "status": "active"
+  }
+
+If it's active, you can execute ``command`` remotely on the Agent::
 
   POST /remote/execute
 
   Request format: RemoteCommandInfo
 
-Executes a command on the Agent.
+  {
+      "command": "ls",
+      "shell": false,
+      "arguments": ["-la", "/tmp"],
+      "timeout": 10
+  }
 
-::
 
-  GET /remote/status
+``command``
+  The binary command to execute; must be in the Agent's execution ``$PATH``
+  and the user running the Agent **must** have the required permissions to
+  execute it.
 
-  Request format: none
+``shell``
+  If ``true`` the ``command`` will be executed inside a shell process
+  (in other words, we will execute something similar to ``sh -c command``).
 
-Returns a `200 OK` response if this module is active.
+``arguments``
+  An array of strings that will be passed verbatim (i.e., without any
+  escaping or variable substitution) to ``command``.[1]_
+
+.. _[1]: In other words, using ``{"command": "echo", "arguments": ["$PATH"]]``
+         will result in ``{"exitCode": 0, "stdout": "$PATH\n"}``.
+
+``timeout``
+  In seconds, to wait for the command to complete: if ``timeout`` is
+  exceeded, the implementation will try and kill the process (sending a
+  ``SIGTERM`` signal) and the ``Future`` will be completed.
+
+
+The request executes a command on the Agent asynchronously; the response will
+contain the process's PID, that can be used afterwards to recover the
+outcome of the command (if any)::
+
+  200 OK
+
+  {
+      "result": "OK",
+      "pid": 6880
+  }
+
+To retrieve the outcome of the command::
+
+  POST /remote/task
+
+  {
+      "pid": 6880
+  }
+
+Will return a ``RemoteCommandResult`` response encoded in JSON::
+
+  200 OK
+
+  {
+    "exitCode": 0,
+    "signaled": false,
+    "stderr": "",
+    "stdout": "total 1972\ndrwxr-xr-x  4 marco   marco     4096 Dec 20 14:28 agent
+              ...\ndrwxrwxrwt  2 root    root      4096 Dec 17 16:06 .X11-unix\n"
+  }
+
+If the command errors out it will result in an ``exitCode`` different from
+``EXIT_SUCCESS`` (0) and if it times out, it will be in the ``signaled``
+state with the ``exitCode`` the value of the signal (most likely ``SIG_KILL``
+or 9, as it was killed by the ``cleanup()`` method).
+
+**Note** that even in the case the command itself failed, the response code
+is stiil a ``200 OK``::
+
+    POST /remote/task
+
+    {
+        "pid": 1373
+    }
+
+may return::
+
+    200 OK
+
+    {
+      "exitCode": 2,
+      "signaled": false,
+      "stderr": "ls: cannot access /foo/bar: No such file or directory\n",
+      "stdout": ""
+    }
+
+
+**NOTE** *RESTful APIs*
+  It is currently not possible to create a RESTful API using ``libprocess``
+  ``route()`` method, as it's not possible to create routes with wildcard
+  URLs (such as ``/remote/task/.*``) as in other HTTP frameworks.
+  (see `process.cpp`_ for more details, and in particular the `handlers`_
+  ``struct``).
+
+Finally, to get the list of currently running and executed processes::
+
+  GET /remote/task
+
+will return a list of valid ``pids`` to query for::
+
+  200 OK
+
+  {
+      "pids": [12141, 12454, ... 12144]
+  }
+
 
 
 Build
@@ -77,13 +187,13 @@ Build
 Prerequisites
 ^^^^^^^^^^^^^
 
-You obviously need `Apache Mesos <http://mesos.apache.org>`_ to build this 
-project: in particular, you will need both the includes (``mesos``, ``stout`` 
+You obviously need `Apache Mesos`_ to build this
+project: in particular, you will need both the includes (``mesos``, ``stout``
 and ``libprocess``) and the shared ``libmesos.so`` library.
 
-In addition, Mesos needs access to ``picojson.h`` and a subset of the ``boost`` 
-header files: see the 
-`3rdparty <https://github.com/apache/mesos/tree/master/3rdparty/libprocess/3rdparty>`_ 
+In addition, Mesos needs access to ``picojson.h`` and a subset of the ``boost``
+header files: see the
+`3rdparty <https://github.com/apache/mesos/tree/master/3rdparty/libprocess/3rdparty>`_
 folder in the mirrored github repository for Mesos, and in particular the
 `boost-1.53.0.tar.gz <https://github.com/apache/mesos/blob/master/3rdparty/libprocess/3rdparty/boost-1.53.0.tar.gz>`_
 archive.
@@ -92,7 +202,7 @@ The "easiest" way to obtain all the prerequisites would probably be to clone the
 repository, build mesos and then install it in a local folder that you will then need to
 configure using the ``LOCAL_INSTALL_DIR`` property (see `CMake`_ below).
 
-Finally, you need the ``libsvn`` library (this is required by Mesos): on OSX 
+Finally, you need the ``libsvn`` library (this is required by Mesos): on OSX
 this can be obtained using ``brew``::
 
     brew install svn
@@ -120,14 +230,15 @@ see the protobuf documentation for more info.
 CMake
 ^^^^^
 
-This module uses `cmake <https://cmake.org`_ to build the module and the 
+This module uses `cmake <https://cmake.org>`_ to build the module and the
 tests; there are currently two targets: ``execmod`` and ``execmod_test``, the
 library and the tests, respectively.
 
-It also needs a number of libraries and includes (see `Prerequisites`_) that 
-we assume to be in the ``include`` and ``lib`` subdirectories of a directory 
-located at ``${LOCAL_INSTALL_DIR}``; this can be set either using an environment 
-variable (``$LOCAL_INSTALL``) or a ``cmake`` property (``-DLOCAL_INSTALL_DIR``)::
+It also needs a number of libraries and header files (see `Prerequisites`_)
+that we assume to be in the ``include`` and ``lib`` subdirectories of a
+directory located at ``${LOCAL_INSTALL_DIR}``; this can be set either using
+an environment variable (``$LOCAL_INSTALL``) or a ``cmake`` property
+(``-DLOCAL_INSTALL_DIR``)::
 
     mkdir build && cd build
     cmake -DLOCAL_INSTALL_DIR=/path/to/usr/local ..
@@ -140,17 +251,37 @@ variable (``$LOCAL_INSTALL``) or a ``cmake`` property (``-DLOCAL_INSTALL_DIR``):
 Usage
 -----
 
-::
+See the `Mesos anonymous module`_ documentation for more details; however, in
+order to run a Mesos Agent with this module loaded, is a simple matter of
+adding the ``--modules`` flag, pointing it to the generated JSON
+``modules.json`` file (the `CMake`_ step will generate it in the ``gen/``
+folder)::
 
-  TODO: add instructions to launch the Mesos Agent with this module loaded
+  $ ${MESOS_ROOT}/build/bin/mesos-slave.sh --work_dir=/tmp/agent \
+      --modules=/path/to/execute-module/gen/modules.json
+      --master=zk://zk1.cluster.prod.com:2181
+
+See ``Configuration``  on the `Apache Mesos`_ documentation pages for more
+details on the various flags.
+
+Also, my `zk_mesos`_ github project provides an example `Vagrant`_
+configuration showing how to deploy and run Mesos from the Mesosphere binary
+distributions.
+
 
 Tests
 -----
 
-Run ``ctest`` from the ``build`` directory, or launch the `execmod_test` 
+Run ``ctest`` from the ``build`` directory, or launch the `execmod_test`
 binary::
 
     cd build && ./execmod_test
-    
-    
+
+
 .. _Mesos anonymous module: http://mesos.apache.org/documentation/latest/modules/
+.. _Apache Mesos: http://mesos.apache.org
+.. _zk_mesos: http://github.com/massenz/zk_mesos
+.. _Vagrant: https://www.vagrantup.com/
+.. _process.cpp: https://github.com/apache/mesos/blob/master/3rdparty/libprocess/src/process.cpp#L3319
+.. _handlers: https://github.com/apache/mesos/blob/master/3rdparty/libprocess/include/process/process.hpp#L359
+

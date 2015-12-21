@@ -37,6 +37,8 @@ private:
 
   Future<http::Response> active(const http::Request &request);
 
+  Future<http::Response> getTaskInfo(const http::Request &request);
+
   void initialize()
   {
     route("/execute",
@@ -62,20 +64,40 @@ private:
           HELP(
               TLDR("Status of this endpoint."),
               USAGE("/remote/status"),
-              DESCRIPTION("Status of this endpoint, mostly for monitoring purposes only",
+              DESCRIPTION("Status of this endpoint, mostly for monitoring "
+                          "purposes only",
                           "HTTP GET only. No parameters."
               )
           ),
           &RemoteExecutionProcess::active
     );
+    route("/task",
+          HELP(
+              TLDR("Current state of the task; or its outcome."),
+              USAGE("/remote/task  {pid: <PID>}"),
+              DESCRIPTION("Current state of the command.",
+                          "The only argument given (`pid`) should match the ",
+                          "returned PID from a previous /remote/execute "
+                          "invocation.",
+                          "It will return the corresponding RemoteCommandResult "
+                          "information, JSON-encoded."
+                          "HTTP GET only."
+              )
+          ),
+          &RemoteExecutionProcess::getTaskInfo
+    );
   }
+
+  std::map<pid_t, Future<RemoteCommandResult>> processes_;
+
+    Future<http::Response> getAllTasks();
 };
 
 Future<http::Response> RemoteExecutionProcess::activate(
     const http::Request &request)
 {
   if (request.method != "POST") {
-    return http::MethodNotAllowed(
+    return http::MethodNotAllowed({"POST"},
         "Expecting a 'POST' request, received '" + request.method + "'");
   }
 
@@ -100,39 +122,49 @@ Future<http::Response> RemoteExecutionProcess::activate(
     args.push_back(commandInfo.arguments(i));
   }
 
-  LOG(INFO) << "Running '" << commandInfo.command() << "'; "
-            << "with " << stringify(args);
   execute::CommandExecute cmd(commandInfo);
-
-  // TODO(marco): generate unique ID to track outcome of job
-   LOG(INFO) << "Running process [" << cmd.pid() << "]";
+  LOG(INFO) << "Running '" << commandInfo.command() << "' "
+            << "with args " << stringify(args)
+            << "; as PID [" << cmd.pid() << "]";
 
   Future<RemoteCommandResult> result_ = cmd.execute();
+
+  // If we are unable to get the subprocess initialized, the Future will fail
+  // immediately: note that this is fundamentally different from a command
+  // failure (which would result in a non-zero exit code).
+  if (result_.isFailed()) {
+    return http::InternalServerError(result_.failure());
+  }
+
+  // Inserting the Future in the map that keeps track of progress and is used
+  // when querying about the state of a task (/remote/task).
+  processes_[cmd.pid()] = result_;
+
   result_.then([commandInfo](const Future<RemoteCommandResult>& future) {
         if (future.isFailed()) {
           LOG(ERROR) << "The execution failed: " << future.failure();
-
-          // TODO(marco): reconcile failure with pending jobs.
           return Nothing();
         }
         auto result = future.get();
-        LOG(INFO) << "Result of '" << commandInfo.command() << "'was: "
-                  << result.stdout();
-
-        // TODO(marco): update status of pending job.
+        LOG(INFO) << "Result of '" << commandInfo.command() << "' was "
+            << (result.exitcode() == EXIT_SUCCESS ? "successful" : " an error")
+            << (result.stdout().empty() ? "" : "\n" + result.stdout());
         return Nothing();
-      }).after(Seconds(30), [commandInfo, cmd](const Future<Nothing> &future) {
-        // TODO(marco): timeout should be configurable and passed in the POST
+      }).after(Seconds(commandInfo.timeout()),
+               [commandInfo, cmd](const Future<Nothing>& future) {
         LOG(ERROR) << "Command " << commandInfo.command()
-                   << " timed out, giving up";
+                   << " timed out after " << commandInfo.timeout()
+                   << " seconds. Aborting process " << cmd.pid();
 
         // TODO(marco): update status of job to timed out.
+        // Currently, we notice a timed out job because its `signaled` status
+        // is `true` and the `exitCode` is 9 (SIGTERM).
         cmd.cleanup();
         return Nothing();
       });
 
-  http::Response response = http::OK("{\"result\": \"OK\", \"pid\": \"" +
-                                     stringify(cmd.pid()) + "\"}");
+  http::Response response = http::OK(
+      "{\"result\": \"started\", \"pid\": " + stringify(cmd.pid()) + "}");
   response.headers["Content-Type"] = "application/json";
   return response;
 }
@@ -140,7 +172,67 @@ Future<http::Response> RemoteExecutionProcess::activate(
 Future<http::Response> RemoteExecutionProcess::active(
     const http::Request &request)
 {
-  return http::OK("Remote execution is active");
+  http::Response response = http::OK(
+      "{\"result\": \"OK\",  \"status\": \"active\"}");
+  response.headers["Content-Type"] = "application/json";
+  return response;
+}
+
+Future<http::Response> RemoteExecutionProcess::getTaskInfo(
+    const http::Request &request)
+{
+  if (request.method == "GET") {
+    return getAllTasks();
+  }
+
+  if (request.method != "POST") {
+    return http::MethodNotAllowed(
+        {"GET", "POST"},
+        "Expecting a 'POST' request, received '" + request.method + "'");
+  }
+
+  auto contentType = request.headers.get("Content-Type");
+  if (contentType.isSome() && contentType.get() != "application/json") {
+    return http::UnsupportedMediaType("Currently only JSON is supported");
+  }
+
+  Try<JSON::Object> body_ = JSON::parse<JSON::Object>(request.body);
+  if (body_.isError()) {
+    return http::BadRequest(body_.error());
+  }
+  auto body = body_.get();
+  if (body.values.count("pid") == 0) {
+    return http::BadRequest("No PID specified in JSON body (\"pid\")");
+  }
+
+  pid_t pid = body.values["pid"].as<JSON::Number>().as<int>();
+  LOG(INFO) << "Retrieving outcome for PID '" << pid << "'";
+
+  if (processes_.count(pid) > 0) {
+    Future<RemoteCommandResult> result_ = processes_[pid];
+    if (result_.isReady()) {
+      return http::OK(JSON::protobuf(result_.get()));
+    } else if (result_.isFailed()) {
+      return http::OK(
+          "{\"result\": \"" + result_.failure() + "\", \"pid\": " +
+          stringify(pid) + "}");
+    } else {
+      return http::OK(
+          "{\"result\": \"pending\", \"pid\": " + stringify(pid) + "}");
+    }
+  }
+  return http::NotFound("{\"pid\": " + stringify(pid) + "}");
+}
+
+Future<http::Response> RemoteExecutionProcess::getAllTasks()
+{
+  std::vector<pid_t> pids;
+  for (auto proc : processes_) {
+    pids.push_back(proc.first);
+  }
+  auto response = http::OK("{\"ids\": " + stringify(pids) + "}");
+  response.headers["Content-Type"] = "application/json";
+  return response;
 }
 
 
@@ -184,4 +276,3 @@ Module<Anonymous> MODULE_NAME(
     "RemoteExecution module",
     NULL,
     createAnonymous);
-

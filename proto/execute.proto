@@ -12,6 +12,7 @@ message RemoteCommandInfo {
     required string command = 1;
     required bool shell = 2;
     repeated string arguments = 3;
+    optional int32 timeout = 4 [default = 30];
 }
 
 
