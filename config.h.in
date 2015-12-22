@@ -3,7 +3,12 @@
 
 // This file contains configuration settings from CMakeLists
 
-#define VERSION_MAJOR @VERSION_MAJOR@
-#define VERSION_MINOR @VERSION_MINOR@
+#define RELEASE_MAJOR @RELEASE_MAJOR@
+#define RELEASE_MINOR @RELEASE_MINOR@
+#define RELEASE_PATCH @RELEASE_PATCH@
+
 #define BUILD_ID "@BUILD_ID@"
+
+#define RELEASE_STR "@RELEASE_STRING@"
+
 #define MODULE_NAME @MODULE_NAME@

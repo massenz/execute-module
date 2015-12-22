@@ -2,7 +2,7 @@
   "libraries":
   [
     {
-      "file": "@PROJECT_BINARY_DIR@/@LIB_NAME@.@LIB_EXT@",
+      "file": "@PROJECT_BINARY_DIR@/@LIB_NAME@@LIB_EXT@",
       "modules":
       [
         {

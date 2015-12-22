@@ -172,8 +172,12 @@ Future<http::Response> RemoteExecutionProcess::activate(
 Future<http::Response> RemoteExecutionProcess::active(
     const http::Request &request)
 {
-  http::Response response = http::OK(
-      "{\"result\": \"OK\",  \"status\": \"active\"}");
+  JSON::Object body;
+  body.values["result"] = "ok";
+  body.values["status"] = "active";
+  body.values["release"] = RELEASE_STR;
+
+  http::Response response = http::OK(stringify(body));
   response.headers["Content-Type"] = "application/json";
   return response;
 }
