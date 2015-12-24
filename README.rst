@@ -15,6 +15,10 @@ Mesos Agent/Master nodes, out-of-band from the normal task execution framework.
 
 For more information, please consult the references listed in `Prerequisites`_.
 
+.. image:: docs/images/execute-module.png
+    :width: 400px
+    :alt: architecture
+
 Goals
 -----
 
