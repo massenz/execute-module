@@ -29,15 +29,21 @@ using execute::RemoteCommandResult;
 class RemoteExecutionProcess : public Process<RemoteExecutionProcess>
 {
 public:
-  RemoteExecutionProcess() : ProcessBase("remote") { }
-  virtual ~RemoteExecutionProcess() { }
+  RemoteExecutionProcess(
+      const std::string& workDir,
+      const std::string& sandboxDir
+  ) : ProcessBase("remote"), workDir_(workDir), sandboxDir_(sandboxDir) {}
+
+  virtual ~RemoteExecutionProcess() {}
 
 private:
-  Future<http::Response> activate(const http::Request &request);
+  Future<http::Response> execute(const http::Request &request);
 
-  Future<http::Response> active(const http::Request &request);
+  Future<http::Response> status(const http::Request &request);
 
   Future<http::Response> getTaskInfo(const http::Request &request);
+
+  Future<http::Response> getAllTasks();
 
   void initialize()
   {
@@ -59,17 +65,17 @@ private:
                           "(see RemoteCommandInfo for more details)."
               )
           ),
-          &RemoteExecutionProcess::activate);
+          &RemoteExecutionProcess::execute);
     route("/status",
           HELP(
               TLDR("Status of this endpoint."),
               USAGE("/remote/status"),
               DESCRIPTION("Status of this endpoint, mostly for monitoring "
-                          "purposes only",
+                              "purposes only",
                           "HTTP GET only. No parameters."
               )
           ),
-          &RemoteExecutionProcess::active
+          &RemoteExecutionProcess::status
     );
     route("/task",
           HELP(
@@ -89,11 +95,11 @@ private:
   }
 
   std::map<pid_t, Future<RemoteCommandResult>> processes_;
-
-    Future<http::Response> getAllTasks();
+  std::string workDir_;
+  std::string sandboxDir_;
 };
 
-Future<http::Response> RemoteExecutionProcess::activate(
+Future<http::Response> RemoteExecutionProcess::execute(
     const http::Request &request)
 {
   if (request.method != "POST") {
@@ -163,23 +169,25 @@ Future<http::Response> RemoteExecutionProcess::activate(
         return Nothing();
       });
 
-  http::Response response = http::OK(
-      "{\"result\": \"started\", \"pid\": " + stringify(cmd.pid()) + "}");
-  response.headers["Content-Type"] = "application/json";
-  return response;
+  return http::OK(JSON::parse(
+      "{"
+          "\"result\": \"started\", "
+          "\"pid\": " + stringify(cmd.pid()) +
+      "}").get()
+  );
 }
 
-Future<http::Response> RemoteExecutionProcess::active(
+Future<http::Response> RemoteExecutionProcess::status(
     const http::Request &request)
 {
   JSON::Object body;
   body.values["result"] = "ok";
   body.values["status"] = "active";
   body.values["release"] = RELEASE_STR;
+  body.values["work_dir"] = workDir_;
+  body.values["sandbox_dir"] = sandboxDir_;
 
-  http::Response response = http::OK(stringify(body));
-  response.headers["Content-Type"] = "application/json";
-  return response;
+  return http::OK(body);
 }
 
 Future<http::Response> RemoteExecutionProcess::getTaskInfo(
@@ -243,40 +251,89 @@ Future<http::Response> RemoteExecutionProcess::getAllTasks()
 class RemoteExecutionAnonymous : public Anonymous
 {
 public:
-  RemoteExecutionAnonymous()
-  {
-    process = new RemoteExecutionProcess();
-    spawn(process);
-  }
+  RemoteExecutionAnonymous() : process(nullptr) {}
 
   virtual ~RemoteExecutionAnonymous()
   {
-    terminate(process);
-    wait(process);
-    delete process;
+    if (process != nullptr) {
+      LOG(INFO) << "Terminating module " << MODULE_NAME_STR << "...";
+      terminate(process);
+      wait(process);
+      LOG(INFO) << "Module shutdown complete, deleting process";
+      delete process;
+    }
   }
 
+  /**
+   * Retrieves a "runtime context" from the Agent.
+   *
+   * Parses the flags from the Agent to retrieve information about the
+   * running environment; in particular, retrieves Mesos working directory
+   * and the Sandbox directory.
+   *
+   * @see MESOS-4253 for more details.
+   * https://issues.apache.org/jira/browse/MESOS-4253
+   *
+   * @param flags the Agent's runtime options.
+   */
+  virtual void init(const flags::FlagsBase& flags)
+  {
+    std::string workDir;
+    std::string sandboxDir;
+
+    LOG(INFO) << "Executing init() for module; parsing runtime flags";
+    for(auto flag : flags) {
+      std::string name = flag.first;
+      Option<string> value = flag.second.stringify(flags);
+      if (name == "work_dir" && value.isSome()) {
+        workDir = value.get();
+      } else if (name == "sandbox_directory" && value.isSome()) {
+        sandboxDir = value.get();
+      }
+    }
+    LOG(INFO) << "Configured work dir to [" << workDir
+              << "] and Sandbox dir to [" << sandboxDir << "]";
+    process = new RemoteExecutionProcess(workDir, sandboxDir);
+    spawn(process);
+  }
+
+
 private:
-  RemoteExecutionProcess* process;
+    RemoteExecutionProcess* process;
 };
 
 namespace {
 
-// Module "main".
+// Module invocation: this gets called by the Agent (or Master) main() method
+// at startup.
 Anonymous* createAnonymous(const Parameters& parameters)
 {
+  // The Parameters PB is filled in from the "parameters" object in the
+  // modules.json configuration file; here we can parse the runtime
+  // parameters passed in (most likely, configured via a deployment script)
+  // and make configuration adjustments when creating (or post-creation) for
+  // our anonymous module.
+  // See: https://github.com/apache/mesos/blob/master/src/slave/main.cpp#L258
+  for (int i = 0; i < parameters.parameter_size(); ++i) {
+    Parameter parameter = parameters.parameter(i);
+    LOG(INFO) << parameter.key() << ": " << parameter.value();
+  }
   return new RemoteExecutionAnonymous();
 }
 
 }
 
 
-// Declares a life cycle module named 'RemoteExecution'.
+// Declares an anonymous module named 'RemoteExecution'.
+// We currently make no compatibility checks and use the current version of
+// Mesos as the minimum allowed; however, this would probably work with an
+// earlier version of Mesos too (probably down to 0.21.x).
 Module<Anonymous> MODULE_NAME(
     MESOS_MODULE_API_VERSION,
     MESOS_VERSION,
     "AlertAvert.com",
     "marco@alertavert.com",
-    "RemoteExecution module",
-    NULL,
+    "Remote Command Execution module\n"
+    "See: http://github.com/massenz/execute-module",
+    [] () {return true;},
     createAnonymous);

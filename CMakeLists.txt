@@ -85,6 +85,7 @@ configure_file(
 
 include_directories(${SOURCE_DIR}/include
         ${GEN_DIR}
+        ${PROJECT_BINARY_DIR}
         ${CMAKE_BINARY_DIR}
         ${LOCAL_INSTALL_DIR}/include
 )
@@ -110,7 +111,7 @@ add_library(${PROJECT_NAME} MODULE
         ${SOURCE_FILES}
         ${PROTO_SRCS} ${PROTO_HDRS}
 )
-target_link_libraries(${PROJECT_NAME} mesos)
+#target_link_libraries(${PROJECT_NAME} mesos)
 
 ### Unit tests build is defined in the tests/ folder
 add_subdirectory(${TESTS_DIR})

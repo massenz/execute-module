@@ -138,8 +138,8 @@ Future<RemoteCommandResult> CommandExecute::execute()
   result.onFailed([=](const string& message) {
     LOG(ERROR) << "Command: '" << command << "' failed: " << message << "\n"
                << "Trying to cleanup process '" << pid() << "'";
-      cleanup();
-  }).onDiscard([this]() {
+    cleanup();
+  }).onDiscard([=]() {
     cleanup();
   });
 

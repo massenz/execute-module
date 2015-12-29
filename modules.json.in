@@ -6,7 +6,17 @@
       "modules":
       [
         {
-          "name": "@MODULE_NAME@"
+          "name": "@MODULE_NAME@",
+          "parameters": [
+            {
+              "key": "para-1",
+              "value": "value-one"
+            },
+            {
+              "key": "para-2",
+              "value": "value-two"
+            }
+          ]
         }
       ]
     }
