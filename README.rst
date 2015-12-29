@@ -66,12 +66,15 @@ You can retrieve the status of this module::
 
 Returns a `200 OK` response if this module is active::
 
-  200 OK
+    200 OK
 
-  {
-      "result": "OK",
-      "status": "active"
-  }
+    {
+        "release": "0.2.0-d94e907",
+        "result": "ok",
+        "sandbox_dir": "/mnt/mesos/sandbox",
+        "status": "active",
+        "work_dir": "/tmp/agent"
+    }
 
 If it's active, you can execute ``command`` remotely on the Agent::
 
@@ -261,6 +264,15 @@ Also, my `zk_mesos`_ github project provides an example `Vagrant`_
 configuration showing how to deploy and run Mesos from the Mesosphere binary
 distributions.
 
+Agent Flags
+^^^^^^^^^^^
+
+If `MESOS-4253`_ is accepted and the `code`_ committed, the module will also gain access to the 
+Agent's flags, and in particular to ``--work_dir`` and ``--sandbox_dir`` that could be further used
+when executing commands to store logs, etc.
+
+See the ``init()`` method in the ``RemoteExecutionAnonymous`` class.
+
 
 Tests
 -----
@@ -297,4 +309,5 @@ binary::
 .. _Vagrant: https://www.vagrantup.com/
 .. _process.cpp: https://github.com/apache/mesos/blob/master/3rdparty/libprocess/src/process.cpp#L3319
 .. _handlers: https://github.com/apache/mesos/blob/master/3rdparty/libprocess/include/process/process.hpp#L359
-
+.. _MESOS-4253: https://issues.apache.org/jira/browse/MESOS-4253
+.. _code: https://reviews.apache.org/r/41760/
