@@ -1,5 +1,6 @@
 // This file is (c) 2015 AlertAvert.com.  All rights reserved.
 
+#include "execute_module.hpp"
 #include <iostream>
 
 #include <mesos/mesos.hpp>
@@ -17,7 +18,9 @@
 #include "config.h"
 
 
-using namespace std;
+using std::map;
+using std::string;
+using std::vector;
 
 using namespace mesos;
 using namespace mesos::modules;
@@ -26,78 +29,56 @@ using namespace process;
 
 using execute::RemoteCommandResult;
 
-class RemoteExecutionProcess : public Process<RemoteExecutionProcess>
+
+void RemoteExecutionProcess::initialize()
 {
-public:
-  RemoteExecutionProcess(
-      const std::string& workDir,
-      const std::string& sandboxDir
-  ) : ProcessBase("remote"), workDir_(workDir), sandboxDir_(sandboxDir) {}
+  route("/execute",
+        HELP(
+            TLDR("Execute a remote command on the agent."),
+            USAGE("/remote/execute"),
+            DESCRIPTION("See: TODO: Insert URL with documentation",
+                        "HTTP POST only.",
+                        "Content-Type: JSON",
+                        "Use the following format:",
+                        "{",
+                        "    \"command\": <shell cmd to execute>",
+                        "    \"arguments\": [",
+                        "            ... list of command args ...",
+                        "    ],",
+                        "    \"shell\": true | false",
+                        "}",
+                        "(see RemoteCommandInfo for more details)."
+            )
+        ),
+        &RemoteExecutionProcess::execute);
+  route("/status",
+        HELP(
+            TLDR("Status of this endpoint."),
+            USAGE("/remote/status"),
+            DESCRIPTION("Status of this endpoint, mostly for monitoring "
+                            "purposes only",
+                        "HTTP GET only. No parameters."
+            )
+        ),
+        &RemoteExecutionProcess::status
+  );
+  route("/task",
+        HELP(
+            TLDR("Current state of the task; or its outcome."),
+            USAGE("/remote/task  {pid: <PID>}"),
+            DESCRIPTION("Current state of the command.",
+                        "The only argument given (`pid`) should match the ",
+                        "returned PID from a previous /remote/execute "
+                        "invocation.",
+                        "It will return the corresponding RemoteCommandResult "
+                        "information, JSON-encoded."
+                        "HTTP GET only."
+            )
+        ),
+        &RemoteExecutionProcess::getTaskInfo
+  );
+}
 
-  virtual ~RemoteExecutionProcess() {}
-
-private:
-  Future<http::Response> execute(const http::Request &request);
-
-  Future<http::Response> status(const http::Request &request);
-
-  Future<http::Response> getTaskInfo(const http::Request &request);
-
-  Future<http::Response> getAllTasks();
-
-  void initialize()
-  {
-    route("/execute",
-          HELP(
-              TLDR("Execute a remote command on the agent."),
-              USAGE("/remote/execute"),
-              DESCRIPTION("See: TODO: Insert URL with documentation",
-                          "HTTP POST only.",
-                          "Content-Type: JSON",
-                          "Use the following format:",
-                          "{",
-                          "    \"command\": <shell cmd to execute>",
-                          "    \"arguments\": [",
-                          "            ... list of command args ...",
-                          "    ],",
-                          "    \"shell\": true | false",
-                          "}",
-                          "(see RemoteCommandInfo for more details)."
-              )
-          ),
-          &RemoteExecutionProcess::execute);
-    route("/status",
-          HELP(
-              TLDR("Status of this endpoint."),
-              USAGE("/remote/status"),
-              DESCRIPTION("Status of this endpoint, mostly for monitoring "
-                              "purposes only",
-                          "HTTP GET only. No parameters."
-              )
-          ),
-          &RemoteExecutionProcess::status
-    );
-    route("/task",
-          HELP(
-              TLDR("Current state of the task; or its outcome."),
-              USAGE("/remote/task  {pid: <PID>}"),
-              DESCRIPTION("Current state of the command.",
-                          "The only argument given (`pid`) should match the ",
-                          "returned PID from a previous /remote/execute "
-                          "invocation.",
-                          "It will return the corresponding RemoteCommandResult "
-                          "information, JSON-encoded."
-                          "HTTP GET only."
-              )
-          ),
-          &RemoteExecutionProcess::getTaskInfo
-    );
-  }
-
-  std::map<pid_t, Future<RemoteCommandResult>> processes_;
-  std::string workDir_;
-  std::string sandboxDir_;
-};
 
 Future<http::Response> RemoteExecutionProcess::execute(
     const http::Request &request)
@@ -177,6 +158,7 @@ Future<http::Response> RemoteExecutionProcess::execute(
   );
 }
 
+
 Future<http::Response> RemoteExecutionProcess::status(
     const http::Request &request)
 {
@@ -189,6 +171,7 @@ Future<http::Response> RemoteExecutionProcess::status(
 
   return http::OK(body);
 }
+
 
 Future<http::Response> RemoteExecutionProcess::getTaskInfo(
     const http::Request &request)
@@ -236,9 +219,10 @@ Future<http::Response> RemoteExecutionProcess::getTaskInfo(
   return http::NotFound("{\"pid\": " + stringify(pid) + "}");
 }
 
+
 Future<http::Response> RemoteExecutionProcess::getAllTasks()
 {
-  std::vector<pid_t> pids;
+  vector<pid_t> pids;
   for (auto proc : processes_) {
     pids.push_back(proc.first);
   }
@@ -247,60 +231,6 @@ Future<http::Response> RemoteExecutionProcess::getAllTasks()
   return response;
 }
 
-
-class RemoteExecutionAnonymous : public Anonymous
-{
-public:
-  RemoteExecutionAnonymous() : process(nullptr) {}
-
-  virtual ~RemoteExecutionAnonymous()
-  {
-    if (process != nullptr) {
-      LOG(INFO) << "Terminating module " << MODULE_NAME_STR << "...";
-      terminate(process);
-      wait(process);
-      LOG(INFO) << "Module shutdown complete, deleting process";
-      delete process;
-    }
-  }
-
-  /**
-   * Retrieves a "runtime context" from the Agent.
-   *
-   * Parses the flags from the Agent to retrieve information about the
-   * running environment; in particular, retrieves Mesos working directory
-   * and the Sandbox directory.
-   *
-   * @see MESOS-4253 for more details.
-   * https://issues.apache.org/jira/browse/MESOS-4253
-   *
-   * @param flags the Agent's runtime options.
-   */
-  virtual void init(const flags::FlagsBase& flags)
-  {
-    std::string workDir;
-    std::string sandboxDir;
-
-    LOG(INFO) << "Executing init() for module; parsing runtime flags";
-    for(auto flag : flags) {
-      std::string name = flag.first;
-      Option<string> value = flag.second.stringify(flags);
-      if (name == "work_dir" && value.isSome()) {
-        workDir = value.get();
-      } else if (name == "sandbox_directory" && value.isSome()) {
-        sandboxDir = value.get();
-      }
-    }
-    LOG(INFO) << "Configured work dir to [" << workDir
-              << "] and Sandbox dir to [" << sandboxDir << "]";
-    process = new RemoteExecutionProcess(workDir, sandboxDir);
-    spawn(process);
-  }
-
-
-private:
-    RemoteExecutionProcess* process;
-};
 
 namespace {
 

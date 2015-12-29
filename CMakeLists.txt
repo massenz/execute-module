@@ -111,7 +111,6 @@ add_library(${PROJECT_NAME} MODULE
         ${SOURCE_FILES}
         ${PROTO_SRCS} ${PROTO_HDRS}
 )
-#target_link_libraries(${PROJECT_NAME} mesos)
 
 ### Unit tests build is defined in the tests/ folder
 add_subdirectory(${TESTS_DIR})
