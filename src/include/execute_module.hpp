@@ -7,6 +7,7 @@
 
 #include <mesos/module/anonymous.hpp>
 
+#include <stout/duration.hpp>
 #include <stout/json.hpp>
 #include <stout/os.hpp>
 #include <stout/protobuf.hpp>
@@ -17,14 +18,25 @@
 #include "config.h"
 
 
-using std::map;
+// The name of the (optional) environment variable for the timeout.
+#define TIMEOUT_ENV_VAR "EXECUTE_TIMEOUT_SEC"
+
+// Unless specified in the `Environment` field of the `CommandInfo` protobuf,
+// as the variable `EXECUTE_TIMEOUT_SEC`, this value will be used for the
+// command execution timeout.
+#define TIMEOUT_DEFAULT_SEC 30
+
+
 using std::string;
-using std::vector;
 
-using namespace mesos;
-using namespace mesos::modules;
+using process::Future;
+using process::Process;
+using process::ProcessBase;
 
-using namespace process;
+// See the code style guide for why this is preferred to
+// `using namespace process`.
+// http://mesos.apache.org/documentation/latest/c++-style-guide/
+namespace http = process::http;
 
 using execute::RemoteCommandResult;
 
@@ -62,13 +74,26 @@ private:
 
   void initialize();
 
-  map<pid_t, Future<RemoteCommandResult>> processes_;
+  /**
+   * Extracts the value for the timeout, in seconds.
+   *
+   * It will look up for a `TIMEOUT_SEC` variable defined in the
+   * `Environment` field of the `commandInfo` and if it does not exist it
+   * will use the `TIMEOUT_DEFAULT_SEC` default value.
+   *
+   * @param commandInfo the command to execute.
+   * @return the timeout value, in seconds.
+   */
+  const Seconds getTimeout(const mesos::CommandInfo& commandInfo)
+    const;
+
+  std::map<pid_t, Future<RemoteCommandResult>> processes_;
   string workDir_;
   string sandboxDir_;
 };
 
 
-class RemoteExecutionAnonymous : public Anonymous
+class RemoteExecutionAnonymous : public mesos::modules::Anonymous
 {
 public:
   RemoteExecutionAnonymous() : process(nullptr) {}

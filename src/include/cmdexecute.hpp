@@ -2,6 +2,8 @@
 
 #pragma once
 
+#include <mesos/mesos.hpp>
+
 #include <process/io.hpp>
 #include <process/subprocess.hpp>
 
@@ -12,10 +14,21 @@
 
 namespace execute {
 
+/**
+ * Terminates the process that is identified by the `pid`.
+ *
+ * This is useful when waiting on the `Future` returned by `execute()`, and
+ * the wait times out: the caller may want to try and clean up the process.
+ *
+ * @see execute::CommandExecute
+ */
+void terminate(pid_t pid);
+
+
 class CommandExecute
 {
 public:
-  CommandExecute(const execute::RemoteCommandInfo& commandInfo);
+  CommandExecute(const mesos::CommandInfo& commandInfo);
 
   /**
    * Executes the child process.
@@ -34,52 +47,10 @@ public:
    * failed, and we provide the information necessary to discover why (and,
    * possibly, take corrective action).
    *
-   * The typical calling pattern, then would be something along the lines of:
-   *
-   *     Future<RemoteCommandResult> future = subprocess.execute();
-   *
-   *     // either wait for the Future, or put the following in a `then` clause:
-   *     if (future.isReady()) {
-   *       const CommandResult& result = future.get();
-   *       if (result.returnCode == EXIT_SUCCESS) {
-   *         // all went well, you can inspect stdout, or whatever.
-   *       } else {
-   *         // something went wrong, let's notify the user.
-   *         LOG(ERROR) << "The command '" << result.invocation.command << "' "
-   *                    << "failed: " << (result.stderr.isSome() ?
-   *                                      result.stderr.get() :
-   *                                      "no information");
-   *       }
-   *     } else {
-   *       // The future failed, something prevented the command to complete at
-   *       // all and/or the calling process to get access to stdin/stdout
-   *       pipes.
-   *     }
-   *
    * @return a `Future` that will deliver the outcome of the command execution.
    * @see execute::RemoteCommandResult
    */
   process::Future<execute::RemoteCommandResult> execute();
-
-
-  /**
-   * Terminates the process that was started via the `execute()` call.
-   *
-   * This is useful when waiting on the `Future` returned by `execute()`, and
-   * the wait times out: the caller may want to try and clean up the process.
-   */
-  void cleanup() const
-  {
-    if (subprocess_.isSome()) {
-      auto pid = subprocess_.get().pid();
-      Try<std::list<os::ProcessTree>> outcome = os::killtree(
-         pid , SIGKILL);
-      if (outcome.isError()) {
-        LOG(ERROR) << "Could not terminate process [" << stringify(pid)
-                   << "]: " << outcome.error();
-      }
-    }
-  }
 
   process::Future<std::string> outData() const
   {
@@ -91,7 +62,6 @@ public:
            process::Failure("Cannot obtain stdout for PID: " +
                             stringify(subprocess_.get().pid()));
   }
-
 
   process::Future <std::string> errData() const
   {
@@ -111,7 +81,7 @@ public:
 
 private:
   Result<process::Subprocess> subprocess_;
-  execute::RemoteCommandInfo commandInfo_;
+  mesos::CommandInfo commandInfo_;
   bool valid_;
 };
 } // namespace execute {

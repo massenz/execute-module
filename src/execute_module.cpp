@@ -1,7 +1,9 @@
 // This file is (c) 2015 AlertAvert.com.  All rights reserved.
 
 #include "execute_module.hpp"
+
 #include <iostream>
+#include <string>
 
 #include <mesos/mesos.hpp>
 #include <mesos/module.hpp>
@@ -22,10 +24,17 @@ using std::map;
 using std::string;
 using std::vector;
 
+namespace http = process::http;
+
 using namespace mesos;
 using namespace mesos::modules;
 
-using namespace process;
+using process::HELP;
+using process::TLDR;
+using process::DESCRIPTION;
+using process::USAGE;
+
+
 
 using execute::RemoteCommandResult;
 
@@ -79,6 +88,26 @@ void RemoteExecutionProcess::initialize()
   );
 }
 
+const Seconds RemoteExecutionProcess::getTimeout(
+    const mesos::CommandInfo& commandInfo) const
+{
+  Seconds timeout_(TIMEOUT_DEFAULT_SEC);
+
+  if (commandInfo.has_environment()) {
+    Environment env = commandInfo.environment();
+    for (int i = 0; i < env.variables_size(); ++i) {
+      auto env_var = env.variables(i);
+      if (env_var.name() == TIMEOUT_ENV_VAR) {
+        // TODO(marco): catch the possible exceptions (std::invalid_argument
+        // and std::out_of_range) that may be thrown here.
+        timeout_ = Seconds(std::stoi(env_var.value()));
+      }
+    }
+  }
+
+  return timeout_;
+}
+
 
 Future<http::Response> RemoteExecutionProcess::execute(
     const http::Request &request)
@@ -97,8 +126,8 @@ Future<http::Response> RemoteExecutionProcess::execute(
     return http::BadRequest(body_.error());
   }
 
-  Try<execute::RemoteCommandInfo> info =
-      ::protobuf::parse<execute::RemoteCommandInfo>(body_.get());
+  Try<mesos::CommandInfo> info =
+      ::protobuf::parse<mesos::CommandInfo>(body_.get());
   if (info.isError()) {
     return http::BadRequest(info.error());
   }
@@ -110,7 +139,7 @@ Future<http::Response> RemoteExecutionProcess::execute(
   }
 
   execute::CommandExecute cmd(commandInfo);
-  LOG(INFO) << "Running '" << commandInfo.command() << "' "
+  LOG(INFO) << "Running '" << commandInfo.value() << "' "
             << "with args " << stringify(args)
             << "; as PID [" << cmd.pid() << "]";
 
@@ -123,9 +152,12 @@ Future<http::Response> RemoteExecutionProcess::execute(
     return http::InternalServerError(result_.failure());
   }
 
+  pid_t pid = cmd.pid();
+
   // Inserting the Future in the map that keeps track of progress and is used
   // when querying about the state of a task (/remote/task).
-  processes_[cmd.pid()] = result_;
+  processes_[pid] = result_;
+  Duration timeout = getTimeout(commandInfo);
 
   result_.then([commandInfo](const Future<RemoteCommandResult>& future) {
         if (future.isFailed()) {
@@ -133,20 +165,20 @@ Future<http::Response> RemoteExecutionProcess::execute(
           return Nothing();
         }
         auto result = future.get();
-        LOG(INFO) << "Result of '" << commandInfo.command() << "' was "
+        LOG(INFO) << "Result of '" << commandInfo.value() << "' was "
             << (result.exitcode() == EXIT_SUCCESS ? "successful" : " an error")
             << (result.stdout().empty() ? "" : "\n" + result.stdout());
         return Nothing();
-      }).after(Seconds(commandInfo.timeout()),
-               [commandInfo, cmd](const Future<Nothing>& future) {
-        LOG(ERROR) << "Command " << commandInfo.command()
-                   << " timed out after " << commandInfo.timeout()
-                   << " seconds. Aborting process " << cmd.pid();
+      }).after(timeout,
+               [commandInfo, pid, timeout](const Future<Nothing>& future) {
+        LOG(ERROR) << "Command " << commandInfo.value()
+                   << " timed out after " << stringify(timeout.secs())
+                   << " seconds. Aborting process " << pid;
 
         // TODO(marco): update status of job to timed out.
         // Currently, we notice a timed out job because its `signaled` status
         // is `true` and the `exitCode` is 9 (SIGTERM).
-        cmd.cleanup();
+        execute::terminate(pid);
         return Nothing();
       });
 

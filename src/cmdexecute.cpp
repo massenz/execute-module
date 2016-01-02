@@ -27,7 +27,7 @@ using std::tuple;
 using std::unique_ptr;
 using std::vector;
 
-using execute::RemoteCommandInfo;
+using mesos::CommandInfo;
 using execute::RemoteCommandResult;
 
 using process::Failure;
@@ -37,26 +37,36 @@ using process::Subprocess;
 
 namespace execute {
 
-CommandExecute::CommandExecute(const RemoteCommandInfo& commandInfo)
+void terminate(pid_t pid)
+{
+  Try<std::list<os::ProcessTree>> outcome = os::killtree(
+      pid , SIGKILL);
+  if (outcome.isError()) {
+    LOG(ERROR) << "Could not terminate process [" << stringify(pid)
+    << "]: " << outcome.error();
+  }
+}
+
+CommandExecute::CommandExecute(const CommandInfo& commandInfo)
   : commandInfo_(commandInfo), valid_(false), subprocess_(None())
 {
   if (commandInfo.shell()) {
     subprocess_ = process::subprocess(
-        commandInfo.command(),
+        commandInfo.value(),
         Subprocess::PIPE(),
         Subprocess::PIPE(),
         Subprocess::PIPE()
     );
   } else {
     // `process::subprocess()` expects args[0] to be the name of the command.
-    std::vector<std::string> args { commandInfo.command() };
+    std::vector<std::string> args { commandInfo.value() };
 
     for (int i = 0; i < commandInfo.arguments_size(); ++i) {
       args.push_back(commandInfo.arguments(i));
     }
 
     subprocess_ = process::subprocess(
-        commandInfo.command(),
+        commandInfo.value(),
         args,
         Subprocess::PIPE(),
         Subprocess::PIPE(),
@@ -72,27 +82,28 @@ Future<RemoteCommandResult> CommandExecute::execute()
       return process::Failure(subprocess_.error());
     } else {
       return process::Failure("Could not create a process instance for " +
-                              commandInfo_.command());
+                              commandInfo_.value());
     }
   }
 
   Subprocess subprocess = subprocess_.get();
-  string command = commandInfo_.command();
+  string command = commandInfo_.value();
+  pid_t pid_ = pid();
 
   Future<tuple<Future<Option<int>>, Future<string>, Future<string>>> waitRes =
       process::await(subprocess.status(), outData(), errData());
 
     Future<RemoteCommandResult> result = waitRes.then(
-            [=](const tuple<Future<Option<int>>,
-                            Future<string>,
-                            Future<string>> &futuresTuple)
+            [pid_, command](const tuple<Future<Option<int>>,
+                              Future<string>,
+                              Future<string>> &futuresTuple)
                    -> Future<RemoteCommandResult> {
     auto status = std::get<0>(futuresTuple);
     auto out = std::get<1>(futuresTuple);
     auto err = std::get<2>(futuresTuple);
 
     if (!status.isReady()) {
-      cleanup();
+      terminate(pid_);
       return Failure("Could not obtain the exit code for the child process");
     }
 
@@ -135,12 +146,14 @@ Future<RemoteCommandResult> CommandExecute::execute()
     return result;
   });
 
-  result.onFailed([=](const string& message) {
+  // See "Effective Modern C++", Item 31 for why we do not use default
+  // capture modes, and instead capture arguments explicitly.
+  result.onFailed([pid_, command](const string& message) {
     LOG(ERROR) << "Command: '" << command << "' failed: " << message << "\n"
-               << "Trying to cleanup process '" << pid() << "'";
-    cleanup();
-  }).onDiscard([=]() {
-    cleanup();
+               << "Trying to cleanup process '" << pid_ << "'";
+    terminate(pid_);
+  }).onDiscard([pid_]() {
+    terminate(pid_);
   });
 
   return result;

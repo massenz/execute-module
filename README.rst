@@ -80,13 +80,12 @@ If it's active, you can execute ``command`` remotely on the Agent::
 
   POST /remote/execute
 
-  Request format: RemoteCommandInfo
+  Request format: mesos::CommandInfo
 
   {
       "command": "ls",
       "shell": false,
       "arguments": ["-la", "/tmp"],
-      "timeout": 10
   }
 
 
@@ -98,16 +97,21 @@ If it's active, you can execute ``command`` remotely on the Agent::
 ``shell``
   If ``true`` the ``command`` will be executed inside a shell process
   (in other words, we will execute something similar to ``sh -c command``).
+  
+  **NOTE** By default, ``shell`` in ``CommandInfo`` is set to ``true`` - this 
+  has implications for this module, as the ``arguments`` are ignored if ``shell`` 
+  is not specified (or set to``true``) and only the ``value`` of the command is
+  passed in - **always make sure to specify ``"shell": false`` if you**
+  **want the arguments to be passed to the command**.
 
 ``arguments``
   An array of strings that will be passed verbatim (i.e., without any
   escaping or variable substitution) to ``command``. [1]_
 
-``timeout``
-  In seconds, to wait for the command to complete: if ``timeout`` is
-  exceeded, the implementation will try and kill the process (sending a
-  ``SIGTERM`` signal) and the ``Future`` will be completed.
-
+There are several other fields in the ``CommandInfo`` protobuf (see the
+`mesos.proto`_ source) but not all of them are actually used in this module: 
+we currently ignore the ``Environment`` (but see below 
+`Timeout`_) ``user`` and ``uris`` fields.
 
 The request executes a command on the Agent asynchronously; the response will
 contain the process's PID, that can be used afterwards to recover the
@@ -119,6 +123,59 @@ outcome of the command (if any)::
       "result": "OK",
       "pid": 6880
   }
+
+
+Timeout
++++++++
+
+In order to specify a timeout in seconds for the command to execute, we need 
+to use one of the environment variables passed in via the ``environment`` 
+field in ``CommandInfo``::
+
+    {
+        "value": "sleep 5",
+        "shell": true,
+        "environment": {
+            "variables": [
+                {
+                    "name": "EXECUTE_TIMEOUT_SEC",
+                    "value": "3"
+                }
+            ]
+        }
+    }
+
+
+The ``EXECUTE_TIMEOUT_SEC`` expresses the timeout in seconds, to wait for the 
+command to complete: if ``value`` is exceeded, the implementation will try 
+and kill the process (sending a ``SIGTERM`` signal) and the ``Future`` will 
+be completed.
+
+**Note** that the response of both requests (see below to get the outcome of 
+the command) will be a 200 OK, but the ``exitCode`` will be 9 (SIGKILL) and 
+the ``signaled`` field will be set to ``true``:
+
+    200 OK
+    
+    {
+      "exitCode": 9,
+      "signaled": true,
+      "stderr": "",
+      "stdout": ""
+    }
+
+The Agent logs also confirm that the command timed out::
+
+    I0102 01:24:10.856061 11020 execute_module.cpp:142] Running 'sleep' with args [ 5 ]; as PID [11030]
+    E0102 01:24:13.858758 11026 execute_module.cpp:174] Command sleep timed out after 3 seconds. Aborting process 11030
+    I0102 01:24:13.905586 11019 execute_module.cpp:168] Result of 'sleep' was  an error
+    I0102 01:24:22.391561 11017 execute_module.cpp:236] Retrieving outcome for PID '11030'
+
+**Note** The ``value`` for timeout is of ``string`` type, but must be a valid 
+integer.
+
+
+----
 
 To retrieve the outcome of the command [2]_ ::
 
@@ -311,3 +368,4 @@ binary::
 .. _handlers: https://github.com/apache/mesos/blob/master/3rdparty/libprocess/include/process/process.hpp#L359
 .. _MESOS-4253: https://issues.apache.org/jira/browse/MESOS-4253
 .. _code: https://reviews.apache.org/r/41760/
+.. _mesos.proto: https://github.com/apache/mesos/blob/master/include/mesos/v1/mesos.proto#L346

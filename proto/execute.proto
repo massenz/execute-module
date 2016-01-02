@@ -5,19 +5,11 @@
 
 package execute;
 
-
-// This class encapsulates the invocation of a command, including its
-// arguments and whether it should be invoked inside a shell.
-message RemoteCommandInfo {
-    required string command = 1;
-    required bool shell = 2;
-    repeated string arguments = 3;
-    optional int32 timeout = 4 [default = 30];
-}
-
-
 // This class wraps the results of the invocation of a command
 // via the `CommandExecute` class (a thin wrapper around `process::Subprocess`).
+//
+// The command to execute is specified using the `CommandInfo` protobuf, see
+// `include/mesos/mesos.proto` for more details.
 message RemoteCommandResult {
     required int32 exitCode = 1 [default = 0];
     optional string stdout = 2;
