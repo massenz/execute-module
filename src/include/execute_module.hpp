@@ -121,7 +121,7 @@ public:
    *
    * @param flags the Agent's runtime options.
    */
-  virtual void init(const flags::FlagsBase& flags)
+  virtual void initialize(const flags::FlagsBase& flags)
   {
     string workDir;
     string sandboxDir;

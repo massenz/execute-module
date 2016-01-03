@@ -134,7 +134,6 @@ field in ``CommandInfo``::
 
     {
         "value": "sleep 5",
-        "shell": true,
         "environment": {
             "variables": [
                 {
@@ -151,9 +150,9 @@ command to complete: if ``value`` is exceeded, the implementation will try
 and kill the process (sending a ``SIGTERM`` signal) and the ``Future`` will 
 be completed.
 
-**Note** that the response of both requests (see below to get the outcome of 
-the command) will be a 200 OK, but the ``exitCode`` will be 9 (SIGKILL) and 
-the ``signaled`` field will be set to ``true``:
+**Note** the response for both requests (see below to get the outcome of 
+the command) will be a 200 OK, but the ``exitCode`` will be 9 (``SIGKILL``) and 
+the ``signaled`` field will be set to ``true``::
 
     200 OK
     
