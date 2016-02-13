@@ -121,7 +121,7 @@ public:
    *
    * @param flags the Agent's runtime options.
    */
-  virtual void initialize(const flags::FlagsBase& flags)
+  virtual Try<Nothing> initialize(const flags::FlagsBase& flags)
   {
     string workDir;
     string sandboxDir;
@@ -136,10 +136,16 @@ public:
         sandboxDir = value.get();
       }
     }
+
+    if (workDir.empty() || sandboxDir.empty()) {
+      return Error("Could not initialize the Working and Sandbox directory");
+    }
     LOG(INFO) << "Configured work dir to [" << workDir
               << "] and Sandbox dir to [" << sandboxDir << "]";
     process = new RemoteExecutionProcess(workDir, sandboxDir);
     spawn(process);
+
+    return Nothing();
   }
 
 private:
